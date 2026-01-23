@@ -1,0 +1,15 @@
+# Tech Stack Allowlist
+alwaysApply: true
+---
+Language:
+  - TypeScript 5.x
+  - Python 3.12
+Framework:
+  - Next.js 14
+  - FastAPI 0.110
+DB:
+  - PostgreSQL 16
+Test:
+  - Jest, Playwright, Pytest
+Rule:
+  上記にないライブラリを追加する場合は必ず開発者に確認を取ること

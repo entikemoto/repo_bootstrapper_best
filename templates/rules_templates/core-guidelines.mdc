@@ -1,0 +1,50 @@
+# Core Guidelines (Always Apply)
+alwaysApply: true
+---
+【目的】
+- AI（Claude Code / Cursor Chat）が、毎回同じ前提で開発を進められるようにする
+- 会話履歴が途切れても、ファイルから確実に復帰できる構造を作る
+
+【Single Source of Truth（正）】
+1. **不変のルール**: `.cursor/rules/*`（このファイル含む）と `CLAUDE.md`
+2. **可変の現在地**: `docs/project-status.md`
+3. **不変の履歴（意思決定・検証ログ）**: `docs/logs/*`
+
+【AI セッション初期化シーケンス（/clear / 再起動後に必ず）】
+1. `.cursor/rules/*` と `CLAUDE.md` の前提を読み直す
+2. **必ず `docs/project-status.md` を読み、Phase / Next Actions / Blockers を要約して報告**
+3. 直近の意思決定が必要なら `docs/logs/` の最新ログを参照する
+4. 最初に着手すべきタスクを 3 つ提案し、優先度と理由を添える
+
+【役割分担（迷ったらこれ）】
+- Claude Code（ターミナル）: 司令塔（計画・調査・コマンド実行・次の3つ提案）
+- Cursor Chat: 実装の手（具体的なファイル編集・差分適用）
+
+【3者運用（Claude Code / Cursor / Windsurf）】
+- 司令塔は **Claude Code** に固定する
+- Windsurf（チャット）: 要件/設計/運用の壁打ち。言語化して `docs/*` に落とす。最後に「Claude Codeに渡す次の1アクション」を作る
+
+【受け渡しルール（事故防止）】
+- 正（SSOT）は必ずファイル（`CLAUDE.md` / `.cursor/rules/*` / `docs/*`）
+- 指示は「次の1アクション」単位で渡す（大きく混ぜない）
+
+【実行履歴と再現性（必須）】
+- 重要な検証（テスト成功/失敗、技術選定、リファクタの判断）をしたら `docs/logs/` に短い記録を残す
+- ログは最低限この形式：
+  - Context（何をした/なぜ）
+  - Changes（何を変えた）
+  - Results（コマンド結果/ログ）
+  - Decision（採用/保留/却下）
+
+【Code-Doc Sync Policy（必須）】
+- 実装が「仕様/挙動/制約」を変える場合、**対応する `docs/*.md` の更新も同時に提案**する
+- ドキュメントの更新が不要な場合でも「不要な理由」を一言で説明する
+
+【回答・出力の最低品質】
+1. 提案コードには、検証コマンド例（Build/Test/Lint等）を併記する
+2. 返答は日本語
+3. コードブロックには言語タグを付与する
+
+【セキュリティ最低ライン】
+- シークレットをハードコードしない（環境変数/Secret Manager）
+- PIIをログに出さない
