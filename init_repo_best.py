@@ -171,6 +171,48 @@ def read_service_overview() -> str | None:
     return txt if txt else None
 
 
+def is_security_confirmed(text: str, data_class: str) -> tuple[bool, str]:
+    """§10 セキュリティ確認セクションの確認状態を検証する。
+
+    Returns:
+        (ok, reason) — ok=False のとき reason に具体的な不備を返す。
+    """
+    m = re.search(r"##\s*10\.?\s*セキュリティ確認.*?\n(.*?)(?=\n##\s|\Z)", text, re.DOTALL)
+    if not m:
+        return False, "§10 セキュリティ確認セクションが見つかりません。service-overview.md に追加してください。"
+
+    section = m.group(1)
+
+    # data-class が1つ選ばれているか確認
+    dc_selected = re.search(r"\*\*data-class\*\*.*?\[x\]", section, re.IGNORECASE)
+    if not dc_selected:
+        return False, "§10: data-class がチェックされていません。public/internal/confidential/PHI のいずれか1つを [x] にしてください。"
+
+    # 全プロジェクト共通チェック（3項目）
+    common_header = re.search(r"全プロジェクト共通チェック\s*(.*?)(?=###|\Z)", section, re.DOTALL)
+    if not common_header:
+        return False, "§10: 全プロジェクト共通チェックセクションが見つかりません。"
+    common_items = re.findall(r"^\s*-\s*\[(.| )\]", common_header.group(1), re.MULTILINE)
+    unchecked = [i for i, mark in enumerate(common_items, 1) if mark.strip().lower() != "x"]
+    if unchecked:
+        return False, f"§10: 全プロジェクト共通チェックの {len(unchecked)} 項目が未確認です（項番: {unchecked}）。"
+
+    # PHI / confidential の場合は追加確認を必須化
+    if data_class in DATA_CLASS_SECURE:
+        phi_header = re.search(r"PHI\s*/\s*confidential.*?追加確認.*?\n(.*?)(?=\n##\s|\Z)", section, re.DOTALL)
+        if not phi_header:
+            return False, f"§10: data-class={data_class} ですが、PHI/confidential 追加確認セクションが見つかりません。"
+        phi_items = re.findall(r"^\s*-\s*\[(.| )\]", phi_header.group(1), re.MULTILINE)
+        phi_unchecked = [i for i, mark in enumerate(phi_items, 1) if mark.strip().lower() != "x"]
+        if phi_unchecked:
+            return False, (
+                f"§10: data-class={data_class} ですが、PHI/confidential 追加確認の "
+                f"{len(phi_unchecked)} 項目が未確認です（項番: {phi_unchecked}）。"
+            )
+
+    return True, "OK"
+
+
 def is_overview_approved(text: str) -> bool:
     # Explicit gate for non-engineer workflow.
     # Requirements:
@@ -193,7 +235,10 @@ def is_overview_approved(text: str) -> bool:
     return True
 
 
-def bootstrap_templates(created: list[Path]):
+DATA_CLASS_SECURE = {"PHI", "confidential"}
+
+
+def bootstrap_templates(created: list[Path], data_class: str = "internal"):
     # docs
     docs_templates_dir = TEMPLATES_DIR / "docs_templates"
     if docs_templates_dir.exists():
@@ -230,6 +275,91 @@ def bootstrap_templates(created: list[Path]):
             if src.exists() and not dest.exists():
                 dest.write_text(src.read_text(encoding="utf-8"), encoding="utf-8")
                 created.append(dest)
+
+        # pre-commit: data-class に応じて1ファイルだけ生成
+        pc_src_name = (
+            "pre-commit-config-security.yaml"
+            if data_class in DATA_CLASS_SECURE
+            else "pre-commit-config.yaml"
+        )
+        pc_src = dotfiles_dir / pc_src_name
+        pc_dest = Path.cwd() / ".pre-commit-config.yaml"
+        if pc_src.exists() and not pc_dest.exists():
+            pc_dest.write_text(pc_src.read_text(encoding="utf-8"), encoding="utf-8")
+            created.append(pc_dest)
+            label = "security" if data_class in DATA_CLASS_SECURE else "standard"
+            print(f"[OK] .pre-commit-config.yaml added ({label}) [data-class={data_class}]")
+
+    # CI: data-class に応じて1ファイルだけ生成（混在させない）
+    _bootstrap_ci(data_class, created)
+
+    # セキュリティが必要なクラスは settings.local.json を自動生成
+    if data_class in DATA_CLASS_SECURE:
+        _bootstrap_security_settings(data_class, created)
+
+
+def _bootstrap_ci(data_class: str, created: list[Path]):
+    ci_dir = TEMPLATES_DIR / "ci"
+    if not ci_dir.exists():
+        return
+    target_dir = Path.cwd() / ".github" / "workflows"
+    target_dir.mkdir(parents=True, exist_ok=True)
+
+    use_security = data_class in DATA_CLASS_SECURE
+
+    # Python と Node それぞれ1ファイルずつ選択
+    for lang in ("python", "node"):
+        if use_security:
+            src_name = f"github-actions-security-{lang}.yml"
+            dest_name = f"ci-security-{lang}.yml"
+        else:
+            src_name = f"github-actions-{lang}.yml"
+            dest_name = f"ci-{lang}.yml"
+        src = ci_dir / src_name
+        dest = target_dir / dest_name
+        if src.exists() and not dest.exists():
+            dest.write_text(src.read_text(encoding="utf-8"), encoding="utf-8")
+            created.append(dest)
+
+    if use_security:
+        print(f"[OK] Security CI workflows added (.github/workflows/) [data-class={data_class}]")
+    else:
+        print(f"[OK] Standard CI workflows added (.github/workflows/) [data-class={data_class}]")
+
+
+def _bootstrap_security_settings(data_class: str, created: list[Path]):
+    claude_dir = Path.cwd() / ".claude"
+    claude_dir.mkdir(parents=True, exist_ok=True)
+    dest = claude_dir / "settings.local.json"
+    if dest.exists():
+        return
+
+    phi_denies = [
+        "mcp__claude_ai_Gmail__*",
+        "mcp__claude_ai_Google_Drive__*",
+        "WebFetch",
+        "WebSearch",
+        "mcp__fetch__*",
+    ]
+    confidential_denies = [
+        "mcp__claude_ai_Gmail__*",
+    ]
+
+    denied_tools = phi_denies if data_class == "PHI" else confidential_denies
+
+    settings = {
+        "permissions": {
+            "deny": denied_tools
+        },
+        "_comment": f"Auto-generated for data-class={data_class}. Review before modifying."
+    }
+    dest.write_text(
+        json.dumps(settings, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    dest.chmod(0o600)
+    created.append(dest)
+    print(f"[OK] .claude/settings.local.json created with deny rules [data-class={data_class}]")
 
 
 def ensure_git_repo():
@@ -318,6 +448,12 @@ def main():
         action="store_true",
         help="Allow running domain/full even if docs/service-overview.md is not APPROVED (not recommended)",
     )
+    parser.add_argument(
+        "--data-class",
+        choices=["public", "internal", "confidential", "PHI"],
+        default="internal",
+        help="Data classification for this project. Affects CI variant and security settings. Default: internal",
+    )
     args = parser.parse_args()
 
     idea_text = normalize_idea_text(args.idea)
@@ -357,7 +493,17 @@ def main():
         )
         sys.exit(3)
 
-    bootstrap_templates(created)
+    # セキュリティ確認ゲート（§10）
+    sec_ok, sec_reason = is_security_confirmed(overview_text, args.data_class)
+    if not sec_ok:
+        print(
+            f"Error: セキュリティ確認が完了していません。\n{sec_reason}\n"
+            "docs/service-overview.md の §10 を確認・記入してから再実行してください。",
+            file=sys.stderr,
+        )
+        sys.exit(3)
+
+    bootstrap_templates(created, data_class=args.data_class)
 
     if args.stage == "domain":
         raw = load_prompt(PROMPT_02_DOMAIN)

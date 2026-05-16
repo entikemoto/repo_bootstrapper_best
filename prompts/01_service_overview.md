@@ -59,6 +59,22 @@
 - [ ] リスクと未確定事項が書けている（分からない点は分からないと明記）
 - [ ] この内容で "開発の土台" として進めて良い
 
+## 10. セキュリティ確認（full 実行前に人間が確認してチェック）
+
+- **data-class**: [ ] public  [ ] internal  [ ] confidential  [ ] PHI
+  （選び方: 患者データ・医療情報 → PHI / APIキー・事業秘密・個人情報 → confidential / 社内利用のみ → internal / 制限なし → public）
+
+### 全プロジェクト共通チェック
+- [ ] シークレット（APIキー・パスワード）はコードに書かない。環境変数または Secret Manager を使う
+- [ ] ユーザー入力は必ず検証する（SQLインジェクション・XSS 対策）
+- [ ] `.env` は `.gitignore` に含める
+
+### PHI / confidential の追加確認（該当する場合のみチェック）
+- [ ] 匿名化前の患者データ・個人情報を外部API（OpenAI・Gemini 等）に送信しない
+- [ ] `.claude/settings.local.json` で外部送信を deny する（`full --data-class PHI` で自動生成済み）
+- [ ] 暗号化方針を決めた（保存データ: AES-256、通信: TLS 1.2+）
+- [ ] 監査ログの要件を決めた（誰が・いつ・何にアクセスしたか記録）
+
 ---
 
 [アイデア]: {idea}
