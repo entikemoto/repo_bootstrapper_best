@@ -27,14 +27,50 @@ def load_prompt(filename: str) -> str:
     return path.read_text(encoding="utf-8")
 
 
-def extract_first_json_block(text: str) -> str | None:
-    # Accept either a fenced block ```json ... ``` or raw JSON.
-    m = re.search(r"```json\s*(\{.*?\})\s*```", text, re.DOTALL)
-    if m:
-        return m.group(1).strip()
-    m = re.search(r"(\{\s*\"files\"\s*:\s*\[.*?\]\s*(?:,\s*\"summary\"\s*:\s*\{.*?\})?\s*\})", text, re.DOTALL)
-    if m:
-        return m.group(1).strip()
+def _candidate_json_regions(text: str) -> list[str]:
+    candidates: list[str] = []
+
+    # Prefer fenced JSON blocks when present.
+    for m in re.finditer(r"```json\s*", text, re.IGNORECASE):
+        start = m.end()
+        end = text.find("```", start)
+        if end != -1:
+            candidates.append(text[start:end].strip())
+
+    stripped = text.strip()
+    if stripped:
+        candidates.append(stripped)
+
+    return candidates
+
+
+def _decode_first_matching_json(candidate: str) -> dict | None:
+    decoder = json.JSONDecoder()
+    starts = [m.start() for m in re.finditer(r'\{\s*"files"\s*:', candidate)]
+
+    if not starts:
+        first_brace = candidate.find("{")
+        if first_brace != -1:
+            starts = [first_brace]
+
+    for start in starts:
+        snippet = candidate[start:]
+        try:
+            payload, _ = decoder.raw_decode(snippet)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(payload, dict) and isinstance(payload.get("files"), list):
+            return payload
+
+    return None
+
+
+def extract_first_json_payload(text: str) -> dict | None:
+    # Accept either a fenced block ```json ... ``` or raw JSON with extra prose.
+    for candidate in _candidate_json_regions(text):
+        payload = _decode_first_matching_json(candidate)
+        if payload is not None:
+            return payload
     return None
 
 
@@ -71,10 +107,10 @@ def write_files_from_json(json_text: str, *, created: list[Path]):
 def run_claude_and_write(prompt: str, *, created: list[Path]):
     def try_once(p: str) -> str:
         out = run_claude(p)
-        json_block = extract_first_json_block(out)
-        if not json_block:
+        payload = extract_first_json_payload(out)
+        if not payload:
             raise ValueError("no_json_payload")
-        write_files_from_json(json_block, created=created)
+        write_files_from_json(json.dumps(payload), created=created)
         return out
 
     try:
@@ -98,7 +134,13 @@ def run_claude_and_write(prompt: str, *, created: list[Path]):
 
 def run_claude(prompt: str) -> str:
     try:
-        result = subprocess.run(["claude", "-p", prompt], capture_output=True, text=True, check=True)
+        result = subprocess.run(
+            ["claude", "-p", prompt],
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
         return result.stdout
     except FileNotFoundError:
         print("Error: 'claude' command not found.", file=sys.stderr)
@@ -188,6 +230,30 @@ def bootstrap_templates(created: list[Path]):
             if src.exists() and not dest.exists():
                 dest.write_text(src.read_text(encoding="utf-8"), encoding="utf-8")
                 created.append(dest)
+
+
+def ensure_git_repo():
+    git_dir = Path.cwd() / ".git"
+    if git_dir.exists():
+        return
+
+    try:
+        subprocess.run(
+            ["git", "init"],
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        print("[OK] initialized local git repository")
+    except FileNotFoundError:
+        print("Error: 'git' command not found.", file=sys.stderr)
+        sys.exit(1)
+    except subprocess.CalledProcessError as e:
+        print("Error: failed to initialize local git repository.", file=sys.stderr)
+        if e.stderr:
+            print(e.stderr, file=sys.stderr)
+        sys.exit(1)
 
 
 def write_service_overview(text: str, *, force: bool, created: list[Path]) -> Path:
@@ -303,6 +369,8 @@ def main():
         return
 
     # full
+    ensure_git_repo()
+
     raw2 = load_prompt(PROMPT_02_DOMAIN)
     prompt2 = raw2.replace("{service_overview}", overview_text)
     print(">>> (1/2) Generating domain-specific docs/rules ...")

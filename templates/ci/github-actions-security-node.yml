@@ -1,0 +1,65 @@
+# GitHub Actions: セキュリティ専用ワークフロー（Node.js / TypeScript）
+# .github/workflows/security.yml にコピーして使用
+#
+# 既存 ci.yml と独立。lint/test/build に影響しない。
+# DevSecOps 三本柱: シークレット検出 / 依存脆弱性 / SAST
+
+name: Security
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+  schedule:
+    # 毎週月曜 09:00 JST に再スキャン（新規アドバイザリ検出のため）
+    - cron: "0 0 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  # ===== シークレット検出 =====
+  secret-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # 全history走査
+
+      - name: Run gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ===== 依存脆弱性 =====
+  dep-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: npm audit
+        run: npm audit --audit-level=high
+        continue-on-error: true  # まず警告から、後で必須化
+
+  # ===== SAST (semgrep) =====
+  sast:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run semgrep
+        uses: semgrep/semgrep-action@v1
+        with:
+          config: >-
+            p/owasp-top-ten
+            p/javascript
+            p/typescript
+            p/secrets
+        continue-on-error: true

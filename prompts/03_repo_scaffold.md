@@ -22,9 +22,51 @@
 
 品質:
 - `CLAUDE.md` には Purpose / Tech Stack / Operational Commands(Build/Test/Lint) / Initial Tasks / Key Constraints を含める
+- `CLAUDE.md` には必ず **Implementation Gate（実装開始ゲート）** または同等の節を含める
+- `CLAUDE.md` には必ず「コスト意識」または同等の節を含め、モデル使い分けを明記する
 - `CLAUDE.md` の末尾には必ず「Development Communication Rules（開発時の報告ルール）」セクションを含める（下記参照）
 - `CLAUDE.md` には必ず「Task Routing Protocol（司令塔ルーティング）」セクションを含める（下記参照）
 - `.cursor/rules/core-guidelines.mdc` と `CLAUDE.md` で矛盾がないようにする
+
+---
+
+`CLAUDE.md` に必ず含める「Implementation Gate（実装開始ゲート）」セクション:
+
+```markdown
+## Implementation Gate（実装開始ゲート）
+
+以下が揃っていれば、実装を進めてよい。
+
+1. `docs/business-and-system-overview.md` が作成済みである
+2. `docs/development-progress.md` または `docs/project-status.md` に現在地が書かれている
+
+`続けてください` `おすすめで` `お願いします` はすべて実装続行の指示とみなす。
+タスクが完了したら次のタスクへ自動で進む。都度確認しない。
+
+### 必ず止まって確認する場合（これだけ）
+
+- 設計の前提が根本から変わるとき
+- 取り返しのつかない破壊的操作（データ削除・外部送信など）
+- ビルド崩壊・クラッシュ・セキュリティ事故（P0）
+```
+
+---
+
+`CLAUDE.md` の「コスト意識」節に必ず含めるルール:
+
+```markdown
+### コスト意識（「正しい意思決定あたりコスト」を最小化する）
+
+最適化目標はトークン単価ではなく「手戻り・事故・誤判断を含めた総コスト」。
+安いモデルで誤った設計を選ぶ方が、高いモデルで正しい設計を選ぶより総コストは高い。
+
+- Claude Code の既定モデルは **Sonnet 4.6** とし、通常実装・小修正・テスト修正はそのまま進める
+- 仕様策定、アーキテクチャ選定、トレードオフ比較、または 2 回以上修正が空振りした場合は Plan mode + **Opus 4.7** に切り替える
+- 広い範囲のコードベース探索は **Haiku 4.5** subagent へ委譲する。ただし最終的な判断は親エージェントが行う
+- 設計の穴探し、反証、安全性レビューは `/harden` または Codex 相談を使い、Opus 4.7 単独で確定しない
+- 高ステークス領域（医療・決済・認証・個人情報）の設計は Opus 4.7 + `/harden` を必須とする
+- 推奨設定: `~/.claude/settings.json` の `"model": "opusplan"` + `"CLAUDE_CODE_SUBAGENT_MODEL": "haiku"`
+```
 
 ---
 

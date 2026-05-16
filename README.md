@@ -56,7 +56,7 @@
 ツールは「この場所」を正本として固定するのがおすすめです。
 
 ```text
-/Users/takeshiikemoto/Obsidian Vaults/20_Resources/Method of Development/repo_bootstrapper_best/
+/Users/takeshiikemoto/Obsidian Vaults/MainVault/methods/development/repo_bootstrapper_best/
 ```
 
 理由:
@@ -70,7 +70,7 @@
 ツールの実体（フルパス）:
 
 ```text
-/Users/takeshiikemoto/Obsidian Vaults/20_Resources/Method of Development/repo_bootstrapper_best/init_repo_best.py
+/Users/takeshiikemoto/Obsidian Vaults/MainVault/methods/development/repo_bootstrapper_best/init_repo_best.py
 ```
 
 ---
@@ -143,7 +143,7 @@ my-service/
 （`CLAUDE.md` や `.cursor/rules/*` などは、Step 3 で承認した後の Step 4 で生成します）
 
 ```bash
-python3.11 "/Users/takeshiikemoto/Obsidian Vaults/20_Resources/Method of Development/repo_bootstrapper_best/init_repo_best.py" \
+python3.11 "/Users/takeshiikemoto/Obsidian Vaults/MainVault/methods/development/repo_bootstrapper_best/init_repo_best.py" \
   --stage overview \
   --spec-file "./specs/spec.md"
 ```
@@ -165,7 +165,7 @@ python3.11 "/Users/takeshiikemoto/Obsidian Vaults/20_Resources/Method of Develop
 承認が終わったら、同じくプロジェクトルートで実行します。
 
 ```bash
-python3.11 "/Users/takeshiikemoto/Obsidian Vaults/20_Resources/Method of Development/repo_bootstrapper_best/init_repo_best.py" \
+python3.11 "/Users/takeshiikemoto/Obsidian Vaults/MainVault/methods/development/repo_bootstrapper_best/init_repo_best.py" \
   --stage full \
   --spec-file "./specs/spec.md"
 ```
@@ -194,6 +194,33 @@ Claude Codeが説明してくれたら、その内容を `docs/business-and-syst
 - 非エンジニアでも「何を作っているか」が常にわかる
 - 開発中に「今どの部品を作っているか」が追跡できる
 - 部品完了時に進捗サマリーが自動で提示される
+
+---
+
+## 5.5（任意・おすすめ）ゲート運用を追加する（agentic_dev_os）
+
+このツール（`repo_bootstrapper_best`）は、**プロジェクトの土台作り（初期化）**に最適化されています。  
+一方、実装フェーズでは「AIが勝手に進みすぎる/直ったか判断できない/迷走する」事故が起きることがあります。
+
+それを防ぐため、初期化後に **追加レイヤー（オーバーレイ）**として `agentic_dev_os` を導入できます（既存の `CLAUDE.md` や `.cursor/rules/*` は壊さず、追加ファイルで強化します）。
+
+### 追加するもの（最小2ファイル）
+- `.cursor/rules/agentic-overlay.mdc`（証拠必須・P0優先・ドリフト対策）
+- `docs/agentic-dev-os.md`（運用の正本）
+
+（推奨）さらに最初の成果物として  
+- `docs/business-and-system-overview.md` を DRAFT→APPROVED で固める  
+（業務→自動化→部品→依存→成功条件→MVPステップ）
+
+### 導入方法（安全：既存は上書きしない）
+
+```bash
+python3.11 "/Users/takeshiikemoto/Obsidian Vaults/MainVault/methods/development/agentic_dev_os/scripts/apply_overlay.py" \
+  --project-root "/path/to/your-project"
+```
+
+詳しい運用は、次を参照してください：
+- `/Users/takeshiikemoto/Obsidian Vaults/MainVault/methods/development/agentic_dev_os/README.md`
 
 ---
 

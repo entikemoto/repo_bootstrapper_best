@@ -1,0 +1,77 @@
+# GitHub Actions: セキュリティ専用ワークフロー（Python）
+# .github/workflows/security.yml にコピーして使用
+#
+# 既存 ci.yml と独立。lint/test/build に影響しない。
+# DevSecOps 三本柱: シークレット検出 / 依存脆弱性 / SAST
+
+name: Security
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+  schedule:
+    # 毎週月曜 09:00 JST に再スキャン（新規アドバイザリ検出のため）
+    - cron: "0 0 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  # ===== シークレット検出 =====
+  secret-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # 全history走査
+
+      - name: Run gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ===== 依存脆弱性 =====
+  dep-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install scanners
+        run: pip install pip-audit safety
+
+      - name: pip-audit
+        run: |
+          if [ -f requirements.txt ]; then
+            pip-audit -r requirements.txt
+          elif [ -f pyproject.toml ]; then
+            pip-audit
+          else
+            echo "No requirements.txt or pyproject.toml found, skipping pip-audit"
+          fi
+        continue-on-error: true  # まず警告から、後で必須化
+
+      - name: safety check
+        run: safety check --json
+        continue-on-error: true
+
+  # ===== SAST (semgrep) =====
+  sast:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run semgrep
+        uses: semgrep/semgrep-action@v1
+        with:
+          config: >-
+            p/owasp-top-ten
+            p/python
+            p/secrets
+        continue-on-error: true

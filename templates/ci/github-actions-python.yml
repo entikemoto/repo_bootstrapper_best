@@ -1,0 +1,143 @@
+# GitHub Actions: Python プロジェクト用（DevSecOps強化版）
+# .github/workflows/ci.yml にコピーして使用
+#
+# このファイルは以下の DevSecOps 原則に基づく:
+#   - permissions: read-only を既定（最小権限）
+#   - gitleaks でシークレット混入を毎push検出
+#   - pip-audit / safety で依存脆弱性を検出
+#   - semgrep で SAST（OWASP Top 10）
+#   - PR と push 双方でフルチェック
+
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+# 既定で全権限を read-only に絞る（個別 job で必要なら昇格）
+permissions:
+  contents: read
+
+env:
+  PYTHON_VERSION: "3.11"
+
+jobs:
+  # ===== 品質チェック =====
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dev tools
+        run: pip install ruff mypy
+
+      - name: Lint (ruff)
+        run: ruff check .
+
+      - name: Format check (ruff)
+        run: ruff format --check .
+
+      - name: Type check (mypy)
+        run: mypy . --ignore-missing-imports
+        continue-on-error: true  # 段階的に必須化
+
+  # ===== テスト =====
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: |
+          if [ -f pyproject.toml ]; then
+            pip install -e ".[dev]" || pip install -e .
+          elif [ -f requirements.txt ]; then
+            pip install -r requirements.txt
+            [ -f requirements-dev.txt ] && pip install -r requirements-dev.txt || true
+          fi
+
+      - name: Run tests with coverage
+        run: |
+          pytest --cov=. --cov-report=xml --cov-report=term-missing || pytest
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          file: ./coverage.xml
+        continue-on-error: true
+
+  # ===== セキュリティ: シークレット検出 =====
+  secret-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # 全history走査
+
+      - name: Run gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ===== セキュリティ: 依存脆弱性 =====
+  dep-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install scanners
+        run: pip install pip-audit safety
+
+      - name: pip-audit
+        run: |
+          if [ -f requirements.txt ]; then
+            pip-audit -r requirements.txt
+          elif [ -f pyproject.toml ]; then
+            pip-audit
+          fi
+        continue-on-error: true  # まず警告から、後で必須化
+
+      - name: safety
+        run: safety check --json
+        continue-on-error: true
+
+  # ===== セキュリティ: SAST (semgrep) =====
+  sast:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run semgrep
+        uses: semgrep/semgrep-action@v1
+        with:
+          config: >-
+            p/owasp-top-ten
+            p/python
+            p/secrets
+        continue-on-error: true
+
+  # ===== PR チェック（マージ条件） =====
+  pr-check:
+    if: github.event_name == 'pull_request'
+    needs: [quality, test, secret-scan]
+    runs-on: ubuntu-latest
+    steps:
+      - name: All required checks passed
+        run: echo "Quality + test + secret-scan passed!"
