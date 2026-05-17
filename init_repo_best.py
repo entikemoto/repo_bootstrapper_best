@@ -27,7 +27,16 @@ def load_prompt(filename: str) -> str:
     return path.read_text(encoding="utf-8")
 
 
+def _sanitize_claude_output(text: str) -> str:
+    # BOM 除去
+    text = text.lstrip("﻿")
+    # ANSI エスケープシーケンス除去（カラー出力等）
+    text = re.sub(r"\x1b\[[0-9;]*m", "", text)
+    return text
+
+
 def _candidate_json_regions(text: str) -> list[str]:
+    text = _sanitize_claude_output(text)
     candidates: list[str] = []
 
     # Prefer fenced JSON blocks when present.
